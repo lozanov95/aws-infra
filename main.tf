@@ -1,7 +1,17 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~>4.0"
+    }
+  }
+}
+
+
 provider "aws" {
   region                   = var.region
-  shared_credentials_files = ["C:/Users/lozanov/.aws/credentials"]
-  shared_config_files      = ["C:/Users/lozanov/.aws/config"]
+  shared_credentials_files = [pathexpand("~/.aws/credentials")]
+  shared_config_files      = [pathexpand("~/.aws/config")]
 }
 
 data "aws_ami" "ubuntu" {
@@ -41,6 +51,12 @@ resource "aws_internet_gateway" "igw" {
     Name = "igw"
   }
 }
+
+resource "aws_key_pair" "ec2-kp" {
+  key_name   = "deploy-key"
+  public_key = file(join("", [pathexpand(var.deploy_key), ".pub"]))
+}
+
 resource "aws_route_table" "name" {
   vpc_id = aws_vpc.vpc.id
 
@@ -56,16 +72,23 @@ resource "aws_route_table_association" "name" {
 }
 resource "aws_security_group" "sec_group" {
   vpc_id = aws_vpc.vpc.id
+
+  dynamic "ingress" {
+    for_each = var.open_ports
+
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = "Open TCP port ${ingress.value}"
+    }
+  }
+
   egress {
     cidr_blocks = ["0.0.0.0/0"]
     from_port   = 0
-    to_port     = 65000
-    protocol    = "all"
-  }
-  ingress {
-    cidr_blocks = ["0.0.0.0/0"]
-    from_port   = 0
-    to_port     = 65000
+    to_port     = 0
     protocol    = "all"
   }
 }
@@ -76,11 +99,43 @@ resource "aws_instance" "web" {
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.sec_group.id]
 
+  key_name = aws_key_pair.ec2-kp.key_name
+
+  connection {
+    host        = self.public_ip
+    user        = "ubuntu"
+    type        = "ssh"
+    private_key = file(pathexpand(var.deploy_key))
+  }
+
+  provisioner "file" {
+    source      = pathexpand(var.deploy_key)
+    destination = "/tmp/"
+  }
+
+  provisioner "file" {
+    source      = "install-docker.sh"
+    destination = "/tmp/install-docker.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/install-docker.sh",
+      "/tmp/install-docker.sh",
+    ]
+  }
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
 
   tags = {
     Name = "INFRA server"
   }
 }
+
+
 output "aws_instance_ip" {
   depends_on = [
     aws_instance.web
