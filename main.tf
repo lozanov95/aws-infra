@@ -98,6 +98,7 @@ resource "aws_instance" "web" {
   subnet_id                   = aws_subnet.subnet.id
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.sec_group.id]
+  security_groups             = [aws_security_group.sec_group.id]
 
   key_name = aws_key_pair.ec2-kp.key_name
 
@@ -113,16 +114,8 @@ resource "aws_instance" "web" {
     destination = "/tmp/"
   }
 
-  provisioner "file" {
-    source      = "install-docker.sh"
-    destination = "/tmp/install-docker.sh"
-  }
-
   provisioner "remote-exec" {
-    inline = [
-      "chmod +x /tmp/install-docker.sh",
-      "/tmp/install-docker.sh",
-    ]
+    script = "install-docker.sh"
   }
 
   metadata_options {
