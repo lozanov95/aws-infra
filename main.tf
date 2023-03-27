@@ -54,7 +54,7 @@ resource "aws_internet_gateway" "igw" {
 
 resource "aws_key_pair" "ec2-kp" {
   key_name   = "deploy-key"
-  public_key = file(join("", [pathexpand(var.deploy_key), ".pub"]))
+  public_key = file(join("", [pathexpand("~/.ssh/${var.deploy_key}"), ".pub"]))
 }
 
 resource "aws_route_table" "name" {
@@ -98,7 +98,7 @@ resource "aws_instance" "web" {
   subnet_id                   = aws_subnet.subnet.id
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.sec_group.id]
-  security_groups             = [aws_security_group.sec_group.id]
+  # security_groups             = [aws_security_group.sec_group.id]
 
   key_name = aws_key_pair.ec2-kp.key_name
 
@@ -106,12 +106,12 @@ resource "aws_instance" "web" {
     host        = self.public_ip
     user        = "ubuntu"
     type        = "ssh"
-    private_key = file(pathexpand(var.deploy_key))
+    private_key = file(pathexpand("~/.ssh/${var.deploy_key}"))
   }
 
   provisioner "file" {
-    source      = pathexpand(var.deploy_key)
-    destination = "/tmp/"
+    source      = pathexpand("~/.ssh/${var.deploy_key}")
+    destination = "/home/ubuntu/.ssh/${var.deploy_key}"
   }
 
   provisioner "remote-exec" {

@@ -7,12 +7,12 @@ variable "region" {
 variable "deploy_key" {
   description = "The name of the key that will be used for deploy"
   type        = string
-  default     = "~/.ssh/ghdeploykey"
+  default     = "ghdeploykey"
 }
 
 variable "open_ports" {
   description = "The ports that will be open in your instance."
 
   type    = list(number)
-  default = [22, 80]
+  default = [80, 22]
 }
