@@ -1,3 +1,9 @@
+variable "ami_id" {
+  description = "Id of the AMI that will be used for the instance"
+  type        = string
+  default     = "ami-08868ffb88a12d582"
+}
+
 variable "region" {
   description = "The region of your deployment"
   type        = string
