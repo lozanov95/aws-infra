@@ -20,5 +20,12 @@ variable "open_ports" {
   description = "The ports that will be open in your instance."
 
   type    = list(number)
-  default = [80, 22]
+  default = [80]
+}
+
+variable "my_ip" {
+  description = "The ip that will be able to ssh to the server"
+
+  type    = string
+  default = "46.10.149.90"
 }
