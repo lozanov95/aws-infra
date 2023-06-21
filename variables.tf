@@ -27,5 +27,5 @@ variable "my_ip" {
   description = "The ip that will be able to ssh to the server"
 
   type    = string
-  default = "46.10.149.90"
+  default = "46.10.148.104"
 }

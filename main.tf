@@ -100,16 +100,20 @@ resource "aws_security_group" "sec_group" {
     protocol    = "all"
   }
 }
+
+resource "aws_iam_instance_profile" "prof" {
+  role = aws_iam_role.cloudwatch_agent_role.name
+}
+
 resource "aws_instance" "web" {
-  # ami                         = data.aws_ami.ubuntu.id
   ami                         = var.ami_id
   instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.subnet.id
   associate_public_ip_address = true
   vpc_security_group_ids      = [aws_security_group.sec_group.id]
-  # security_groups             = [aws_security_group.sec_group.id]
 
-  key_name = aws_key_pair.ec2-kp.key_name
+  key_name             = aws_key_pair.ec2-kp.key_name
+  iam_instance_profile = aws_iam_instance_profile.prof.name
 
   connection {
     host        = self.public_ip
@@ -123,8 +127,17 @@ resource "aws_instance" "web" {
     destination = "/home/ubuntu/.ssh/${var.deploy_key}"
   }
 
+  provisioner "file" {
+    source      = "amazon-cloudwatch-agent.json"
+    destination = "/home/ubuntu/amazon-cloudwatch-agent.json"
+  }
+
   provisioner "remote-exec" {
     script = "install-docker.sh"
+  }
+
+  provisioner "remote-exec" {
+    script = "install-cloudwatch.sh"
   }
 
   metadata_options {
@@ -138,10 +151,141 @@ resource "aws_instance" "web" {
 }
 
 
-output "aws_instance_ip" {
-  depends_on = [
-    aws_instance.web
-  ]
-  value       = aws_instance.web.public_ip
-  description = "EC2's ip"
+data "aws_iam_policy" "cw_server_policy" {
+  name = "CloudWatchAgentServerPolicy"
+}
+
+data "aws_iam_policy" "ssm_role" {
+  name = "AmazonSSMManagedEC2InstanceDefaultPolicy"
+}
+
+resource "aws_iam_role" "cloudwatch_agent_role" {
+  name = "cloudwatch_agent_role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = ""
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      },
+    ]
+  })
+
+  managed_policy_arns = [data.aws_iam_policy.cw_server_policy.arn, data.aws_iam_policy.ssm_role.arn]
+}
+
+resource "aws_ssm_document" "docker_prune" {
+  name          = "DockerSystemPrune"
+  document_type = "Command"
+  target_type   = "/AWS::EC2::Instance"
+  content       = <<DOC
+  {
+    "schemaVersion": "1.2",
+    "description": "Clear the docker unused files.",
+    "parameters": {},
+    "runtimeConfig": {
+      "aws:runShellScript": {
+        "properties": [
+          {
+            "id": "0.aws:runShellScript",
+            "runCommand": ["docker system prune -f"]
+          }
+        ]
+      }
+    }
+  }
+DOC
+}
+
+resource "aws_cloudwatch_event_rule" "my_event_rule" {
+  name        = "LowDiskRule"
+  description = "LowDiskRule"
+
+  event_pattern = <<EOF
+    {
+      "source": [
+        "aws.cloudwatch"
+      ],
+      "detail-type": [
+        "CloudWatch Alarm State Change"
+      ],
+      "detail": {
+        "alarmName": [
+          "low diskspace"
+        ]
+      }
+    }
+  EOF
+}
+
+resource "aws_cloudwatch_event_target" "my_event_target" {
+  rule = aws_cloudwatch_event_rule.my_event_rule.name
+
+  run_command_targets {
+    key    = "InstanceIds"
+    values = [aws_instance.web.id]
+  }
+  arn      = aws_ssm_document.docker_prune.arn
+  role_arn = aws_iam_role.ssm_lifecycle.arn
+}
+
+data "aws_iam_policy_document" "ssm_lifecycle_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "ssm_lifecycle" {
+  statement {
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = [aws_instance.web.arn]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = [aws_ssm_document.docker_prune.arn]
+  }
+}
+
+resource "aws_iam_role" "ssm_lifecycle" {
+  name               = "SSMLifecycle"
+  assume_role_policy = data.aws_iam_policy_document.ssm_lifecycle_trust.json
+}
+
+resource "aws_iam_policy" "ssm_lifecycle" {
+  name   = "SSMLifecycle"
+  policy = data.aws_iam_policy_document.ssm_lifecycle.json
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_lifecycle" {
+  policy_arn = aws_iam_policy.ssm_lifecycle.arn
+  role       = aws_iam_role.ssm_lifecycle.name
+}
+
+
+resource "aws_cloudwatch_metric_alarm" "diskspace" {
+  alarm_name          = "low diskspace"
+  metric_name         = "disk_used_percent"
+  comparison_operator = "GreaterThanThreshold"
+  namespace           = "CWAgent"
+  evaluation_periods  = 2
+  period              = 360
+  threshold           = "85"
+  datapoints_to_alarm = 1
+  statistic           = "Average"
+
+  dimensions = {
+    InstanceId = aws_instance.web.id
+  }
 }
