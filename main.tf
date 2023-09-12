@@ -7,7 +7,6 @@ terraform {
   }
 }
 
-
 provider "aws" {
   region                   = var.region
   shared_credentials_files = [pathexpand("~/.aws/credentials")]
@@ -29,6 +28,7 @@ data "aws_ami" "ubuntu" {
 
   owners = ["099720109477"] # Canonical
 }
+
 resource "aws_vpc" "vpc" {
   cidr_block = "10.0.0.0/16"
 
@@ -36,6 +36,7 @@ resource "aws_vpc" "vpc" {
     Name = "VPC"
   }
 }
+
 resource "aws_subnet" "subnet" {
   cidr_block = "10.0.0.0/24"
   vpc_id     = aws_vpc.vpc.id
@@ -44,6 +45,7 @@ resource "aws_subnet" "subnet" {
     Name = "subnet"
   }
 }
+
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.vpc.id
 
@@ -65,11 +67,13 @@ resource "aws_route_table" "name" {
     gateway_id = aws_internet_gateway.igw.id
   }
 }
+
 resource "aws_route_table_association" "name" {
   route_table_id = aws_route_table.name.id
   subnet_id      = aws_subnet.subnet.id
 
 }
+
 resource "aws_security_group" "sec_group" {
   vpc_id = aws_vpc.vpc.id
 
@@ -150,7 +154,6 @@ resource "aws_instance" "web" {
   }
 }
 
-
 data "aws_iam_policy" "cw_server_policy" {
   name = "CloudWatchAgentServerPolicy"
 }
@@ -193,6 +196,29 @@ resource "aws_ssm_document" "docker_prune" {
           {
             "id": "0.aws:runShellScript",
             "runCommand": ["docker system prune -f"]
+          }
+        ]
+      }
+    }
+  }
+DOC
+}
+
+resource "aws_ssm_document" "make_prod" {
+  name          = "MaimundaMakeProd"
+  document_type = "Command"
+  target_type   = "/AWS::EC2::Instance"
+  content       = <<DOC
+  {
+    "schemaVersion": "1.2",
+    "description": "Recreate the maimunda docker image and rerun the container.",
+    "parameters": {},
+    "runtimeConfig": {
+      "aws:runShellScript": {
+        "properties": [
+          {
+            "id": "0.aws:runShellScript",
+            "runCommand": ["cd /home/ubuntu/zamunda-scrapper && sudo -u ubuntu make prod"]
           }
         ]
       }
@@ -256,6 +282,12 @@ data "aws_iam_policy_document" "ssm_lifecycle" {
     actions   = ["ssm:SendCommand"]
     resources = [aws_ssm_document.docker_prune.arn]
   }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["ssm:SendCommand"]
+    resources = [aws_ssm_document.make_prod.arn]
+  }
 }
 
 resource "aws_iam_role" "ssm_lifecycle" {
@@ -273,7 +305,6 @@ resource "aws_iam_role_policy_attachment" "ssm_lifecycle" {
   role       = aws_iam_role.ssm_lifecycle.name
 }
 
-
 resource "aws_cloudwatch_metric_alarm" "diskspace" {
   alarm_name          = "low diskspace"
   metric_name         = "disk_used_percent"
@@ -282,10 +313,20 @@ resource "aws_cloudwatch_metric_alarm" "diskspace" {
   evaluation_periods  = 2
   period              = 360
   threshold           = "85"
-  datapoints_to_alarm = 1
+  datapoints_to_alarm = 2
   statistic           = "Average"
 
   dimensions = {
     InstanceId = aws_instance.web.id
   }
+}
+
+resource "aws_iam_user" "deploy_user" {
+  name = "deploy_user"
+}
+
+resource "aws_iam_policy_attachment" "deploy_role" {
+  name       = "deploy_policy"
+  policy_arn = aws_iam_policy.ssm_lifecycle.arn
+  users      = [aws_iam_user.deploy_user.id]
 }
