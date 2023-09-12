@@ -321,12 +321,39 @@ resource "aws_cloudwatch_metric_alarm" "diskspace" {
   }
 }
 
-resource "aws_iam_user" "deploy_user" {
-  name = "deploy_user"
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
 }
 
-resource "aws_iam_policy_attachment" "deploy_role" {
-  name       = "deploy_policy"
+resource "aws_iam_role" "gh_role" {
+  name = "github_deploy_role"
+
+  assume_role_policy = jsonencode({
+    "Version" : "2012-10-17",
+    "Statement" : [
+      {
+        "Effect" : "Allow",
+        "Principal" : {
+          "Federated" : "arn:aws:iam::${split(":", aws_iam_policy.ssm_lifecycle.arn)[4]}:oidc-provider/token.actions.githubusercontent.com"
+        },
+        "Action" : "sts:AssumeRoleWithWebIdentity"
+        "Condition" : {
+          "StringEquals" : {
+            "token.actions.githubusercontent.com:aud" : "sts.amazonaws.com"
+          }
+          "StringLike" : {
+            "token.actions.githubusercontent.com:sub" : "repo:lozanov95/zamunda-scrapper:*",
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_role" {
   policy_arn = aws_iam_policy.ssm_lifecycle.arn
-  users      = [aws_iam_user.deploy_user.id]
+  role       = aws_iam_role.gh_role.name
 }
