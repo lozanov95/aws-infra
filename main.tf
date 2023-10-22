@@ -89,12 +89,24 @@ resource "aws_security_group" "sec_group" {
     }
   }
 
-  ingress {
-    cidr_blocks = ["${var.my_ip}/32"]
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    description = "Opened SSH port to the managing PC"
+  # ingress {
+  #   cidr_blocks = ["${var.my_ip}/32"]
+  #   from_port   = 22
+  #   to_port     = 22
+  #   protocol    = "tcp"
+  #   description = "Opened SSH port to the managing PC"
+  # }
+
+  dynamic "ingress" {
+    for_each = var.ssh_open_ips
+    content {
+      cidr_blocks = ["${ingress.value}/32"]
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      description = "Opened SSH port to the managing PC."
+    }
+
   }
 
   egress {

@@ -23,9 +23,9 @@ variable "open_ports" {
   default = [80]
 }
 
-variable "my_ip" {
-  description = "The ip that will be able to ssh to the server"
+variable "ssh_open_ips" {
+  description = "(Optional) The ips that will be able to ssh to the server."
 
-  type    = string
-  default = "46.10.148.104"
+  type    = list(string)
+  default = ["84.238.195.45", "212.39.80.42"]
 }
